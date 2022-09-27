@@ -15,4 +15,12 @@ archived_builds/
 .*\.pot$
 locale/.files
 MANIFEST
+<<<<<<< HEAD
 .pytest_cache
+=======
+
+
+# for visual studio and visual studio code editors
+.vs/
+.vscode/
+>>>>>>> 97af7ce5724e038593bf892109b9ec94333267fc
