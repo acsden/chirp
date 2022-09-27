@@ -1,4 +1,4 @@
-# Copyright 2021 Jim Unroe <rock.unroe@gmail.com>
+# Copyright 2021-2022 Jim Unroe <rock.unroe@gmail.com>
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -315,6 +315,8 @@ PF1_CHOICES = ["None", "Monitor", "Scan", "Scramble", "Alarm"]
 PF1_VALUES = [0x0F, 0x04, 0x06, 0x08, 0x0C]
 PF1_17A_CHOICES = ["None", "Monitor", "Scan", "Scramble"]
 PF1_17A_VALUES = [0x0F, 0x04, 0x06, 0x08]
+PFKEY23_CHOICES = ["None", "Monitor", "Warn", "VOX", "VOX Delay", "Scan"]
+PFKEY23_VALUES = [0x00, 0x01, 0x03, 0x04, 0x05, 0x07]
 PFKEY_CHOICES = ["None", "Monitor", "Scan", "Scramble", "VOX", "Alarm"]
 PFKEY_VALUES = [0x0F, 0x04, 0x06, 0x08, 0x09, 0x0A]
 TOPKEY_CHOICES = ["None", "Alarming"]
@@ -415,39 +417,13 @@ def _read_block(radio, block_addr, block_size):
 
         block_data = response[4:]
 
-        serial.write(CMD_ACK)
-        ack = serial.read(1)
-    except:
-        raise errors.RadioError("Failed to read block at %04x" % block_addr)
-
-    if ack != CMD_ACK:
-        raise Exception("No ACK reading block %04x." % (block_addr))
-
-    return block_data
-
-
-def _rb26_read_block(radio, block_addr, block_size):
-    serial = radio.pipe
-
-    cmd = struct.pack(">cHb", 'R', block_addr, block_size)
-    expectedresponse = "W" + cmd[1:]
-    LOG.debug("Reading block %04x..." % (block_addr))
-
-    try:
-        serial.write(cmd)
-        response = serial.read(4 + block_size)
-        if response[:4] != expectedresponse:
-            raise Exception("Error reading block %04x." % (block_addr))
-
-        block_data = response[4:]
-
-        if block_addr != 0:
+        if block_addr != 0 or radio._ack_1st_block:
             serial.write(CMD_ACK)
             ack = serial.read(1)
     except:
         raise errors.RadioError("Failed to read block at %04x" % block_addr)
 
-    if block_addr != 0:
+    if block_addr != 0 or radio._ack_1st_block:
         if ack != CMD_ACK:
             raise Exception("No ACK reading block %04x." % (block_addr))
 
@@ -488,10 +464,7 @@ def do_download(radio):
         status.cur = addr + radio.BLOCK_SIZE
         radio.status_fn(status)
 
-        if radio.MODEL == "RB26" or radio.MODEL == "RT76":
-            block = _rb26_read_block(radio, addr, radio.BLOCK_SIZE)
-        else:
-            block = _read_block(radio, addr, radio.BLOCK_SIZE)
+        block = _read_block(radio, addr, radio.BLOCK_SIZE)
         data += block
 
         LOG.debug("Address: %04x" % addr)
@@ -536,6 +509,7 @@ class RT21Radio(chirp_common.CloneModeRadio):
     BLOCK_SIZE = 0x10
     BLOCK_SIZE_UP = 0x10
 
+    DTCS_CODES = sorted(chirp_common.DTCS_CODES + [17, 50, 645])
     POWER_LEVELS = [chirp_common.PowerLevel("High", watts=2.50),
                     chirp_common.PowerLevel("Low", watts=1.00)]
 
@@ -544,6 +518,7 @@ class RT21Radio(chirp_common.CloneModeRadio):
     _magic = "PRMZUNE"
     _fingerprint = "P3207s\xF8\xFF"
     _upper = 16
+    _ack_1st_block = True
     _skipflags = True
     _reserved = False
     _gmrs = False
@@ -573,6 +548,7 @@ class RT21Radio(chirp_common.CloneModeRadio):
         rf.valid_power_levels = self.POWER_LEVELS
         rf.valid_duplexes = ["", "-", "+", "split", "off"]
         rf.valid_modes = ["FM", "NFM"]  # 25 KHz, 12.5 kHz.
+        rf.valid_dtcs_codes = self.DTCS_CODES
         rf.memory_bounds = (1, self._upper)
         rf.valid_tuning_steps = [2.5, 5., 6.25, 10., 12.5, 25.]
         rf.valid_bands = self.VALID_BANDS
@@ -618,6 +594,7 @@ class RT21Radio(chirp_common.CloneModeRadio):
             pol = (val & 0x8000) and "R" or "N"
             return code, pol
 
+        tpol = False
         if _mem.tx_tone != 0xFFFF and _mem.tx_tone > 0x2000:
             tcode, tpol = _get_dcs(_mem.tx_tone)
             mem.dtcs = tcode
@@ -628,6 +605,7 @@ class RT21Radio(chirp_common.CloneModeRadio):
         else:
             txmode = ""
 
+        rpol = False
         if _mem.rx_tone != 0xFFFF and _mem.rx_tone > 0x2000:
             rcode, rpol = _get_dcs(_mem.rx_tone)
             mem.rx_dtcs = rcode
@@ -648,8 +626,8 @@ class RT21Radio(chirp_common.CloneModeRadio):
             mem.tmode = "Cross"
             mem.cross_mode = "%s->%s" % (txmode, rxmode)
 
-        if mem.tmode == "DTCS":
-            mem.dtcs_polarity = "%s%s" % (tpol, rpol)
+        # always set it even if no dtcs is used
+        mem.dtcs_polarity = "%s%s" % (tpol or "N", rpol or "N")
 
         LOG.debug("Got TX %s (%i) RX %s (%i)" %
                   (txmode, _mem.tx_tone, rxmode, _mem.rx_tone))
@@ -714,7 +692,7 @@ class RT21Radio(chirp_common.CloneModeRadio):
         else:
             mem.power = self.POWER_LEVELS[1 - _mem.highpower]
 
-        if self.MODEL != "RT76":
+        if self._skipflags:
             mem.skip = "" if (_skp & bitpos) else "S"
             LOG.debug("mem.skip %s" % mem.skip)
 
@@ -747,8 +725,9 @@ class RT21Radio(chirp_common.CloneModeRadio):
                 rset = RadioSetting("compander", "Compander", rs)
                 mem.extra.append(rset)
 
-        if self.MODEL == "RB26" or self.MODEL == "RT76":
-            if self.MODEL == "RB26":
+        if self.MODEL == "RB26" or self.MODEL == "RT76" \
+                or self.MODEL == "RB23":
+            if self.MODEL == "RB26" or self.MODEL == "RB23":
                 rs = RadioSettingValueBoolean(_mem.bcl)
                 rset = RadioSetting("bcl", "Busy Channel Lockout", rs)
                 mem.extra.append(rset)
@@ -761,7 +740,7 @@ class RT21Radio(chirp_common.CloneModeRadio):
 
     def _set_tone(self, mem, _mem):
         def _set_dcs(code, pol):
-            val = int("%i" % code, 8) + 0x2800
+            val = int("%i" % code, 8) + 0x2000
             if pol == "R":
                 val += 0x8000
             return val
@@ -817,7 +796,8 @@ class RT21Radio(chirp_common.CloneModeRadio):
             _rsvd = _mem.reserved.get_raw()
 
         if mem.empty:
-            if self.MODEL == "RB26" or self.MODEL == "RT76":
+            if self.MODEL == "RB26" or self.MODEL == "RT76" \
+                    or self.MODEL == "RB23":
                 _mem.set_raw("\xFF" * 13 + _rsvd)
             else:
                 _mem.set_raw("\xFF" * (_mem.size() / 8))
@@ -826,7 +806,8 @@ class RT21Radio(chirp_common.CloneModeRadio):
 
         if self.MODEL == "RB17A":
             _mem.set_raw("\x00" * 14 + "\xFF\xFF")
-        elif self.MODEL == "RB26" or self.MODEL == "RT76":
+        elif self.MODEL == "RB26" or self.MODEL == "RT76" \
+                or self.MODEL == "RB23":
             _mem.set_raw("\x00" * 13 + _rsvd)
         else:
             _mem.set_raw("\x00" * 13 + "\x30\x8F\xF8")
@@ -877,7 +858,7 @@ class RT21Radio(chirp_common.CloneModeRadio):
         else:
             _mem.highpower = mem.power == self.POWER_LEVELS[0]
 
-        if self.MODEL != "RT76":
+        if self._skipflags:
             if mem.skip != "S":
                 _skp |= bitpos
             else:
@@ -1029,8 +1010,9 @@ class RT21Radio(chirp_common.CloneModeRadio):
                 rset.set_apply_callback(apply_pfkey_listvalue, _keys.pf2)
                 basic.append(rset)
 
-        if self.MODEL == "RB26" or self.MODEL == "RT76":
-            if self.MODEL == "RB26":
+        if self.MODEL == "RB26" or self.MODEL == "RT76" \
+                or self.MODEL == "RB23":
+            if self.MODEL == "RB26" or self.MODEL == "RB23":
                 _settings2 = self._memobj.settings2
                 _settings3 = self._memobj.settings3
 
@@ -1049,12 +1031,13 @@ class RT21Radio(chirp_common.CloneModeRadio):
                 rset = RadioSetting("voice", "Voice Annumciation", rs)
                 basic.append(rset)
 
-            if self.MODEL == "RB26":
+            if self.MODEL == "RB26" or self.MODEL == "RB23":
                 rs = RadioSettingValueList(VOICE_LIST2,
                                            VOICE_LIST2[_settings.voice])
                 rset = RadioSetting("voice", "Voice Annumciation", rs)
                 basic.append(rset)
 
+            if self.MODEL == "RB26":
                 rs = RadioSettingValueBoolean(not _settings.chnumberd)
                 rset = RadioSetting("chnumberd", "Channel Number Enable", rs)
                 basic.append(rset)
@@ -1067,7 +1050,7 @@ class RT21Radio(chirp_common.CloneModeRadio):
             rset = RadioSetting("beep", "Beep", rs)
             basic.append(rset)
 
-            if self.MODEL == "RB26":
+            if self.MODEL == "RB26" or self.MODEL == "RB23":
                 rs = RadioSettingValueBoolean(not _settings.tail)
                 rset = RadioSetting("tail", "QT/DQT Tail", rs)
                 basic.append(rset)
@@ -1084,7 +1067,7 @@ class RT21Radio(chirp_common.CloneModeRadio):
             rset = RadioSetting("warn", "Warn Mode", rs)
             basic.append(rset)
 
-            if self.MODEL == "RB26":
+            if self.MODEL == "RB26" or self.MODEL == "RB23":
                 rs = RadioSettingValueBoolean(_settings3.vox)
                 rset = RadioSetting("settings3.vox", "Vox Function", rs)
                 basic.append(rset)
@@ -1099,15 +1082,46 @@ class RT21Radio(chirp_common.CloneModeRadio):
                 rset = RadioSetting("settings3.voxd", "Vox Delay", rs)
                 basic.append(rset)
 
-                rs = RadioSettingValueList(PFKEY_LIST,
-                                           PFKEY_LIST[_settings.pf1])
-                rset = RadioSetting("pf1", "PF1 Key Set", rs)
-                basic.append(rset)
+                if self.MODEL == "RB26":
+                    rs = RadioSettingValueList(PFKEY_LIST,
+                                               PFKEY_LIST[_settings.pf1])
+                    rset = RadioSetting("pf1", "PF1 Key Set", rs)
+                    basic.append(rset)
 
-                rs = RadioSettingValueList(PFKEY_LIST,
-                                           PFKEY_LIST[_settings.pf2])
-                rset = RadioSetting("pf2", "PF2 Key Set", rs)
-                basic.append(rset)
+                    rs = RadioSettingValueList(PFKEY_LIST,
+                                               PFKEY_LIST[_settings.pf2])
+                    rset = RadioSetting("pf2", "PF2 Key Set", rs)
+                    basic.append(rset)
+                elif self.MODEL == "RB23":
+                    def apply_pfkey_listvalue(setting, obj):
+                        LOG.debug("Setting value: " + str(setting.value) +
+                                  " from list")
+                        val = str(setting.value)
+                        index = PFKEY23_CHOICES.index(val)
+                        val = PFKEY23_VALUES[index]
+                        obj.set_value(val)
+
+                    if _settings.pf1 in PFKEY23_VALUES:
+                        idx = PFKEY23_VALUES.index(_settings.pf1)
+                    else:
+                        idx = PFKEY23_VALUES.index(0x01)
+                    rs = RadioSettingValueList(PFKEY23_CHOICES,
+                                               PFKEY23_CHOICES[idx])
+                    rset = RadioSetting("settings.pf1", "PF1 Key Function", rs)
+                    rset.set_apply_callback(apply_pfkey_listvalue,
+                                            _settings.pf1)
+                    basic.append(rset)
+
+                    if _settings.pf2 in PFKEY23_VALUES:
+                        idx = PFKEY23_VALUES.index(_settings.pf2)
+                    else:
+                        idx = PFKEY23_VALUES.index(0x03)
+                    rs = RadioSettingValueList(PFKEY23_CHOICES,
+                                               PFKEY23_CHOICES[idx])
+                    rset = RadioSetting("settings.pf2", "PF2 Key Function", rs)
+                    rset.set_apply_callback(apply_pfkey_listvalue,
+                                            _settings.pf2)
+                    basic.append(rset)
 
                 rs = RadioSettingValueInteger(1, 30, _settings2.chnumber + 1)
                 rset = RadioSetting("settings2.chnumber", "Channel Number", rs)
@@ -1230,12 +1244,14 @@ class RB26Radio(RT21Radio):
     BLOCK_SIZE = 0x20
     BLOCK_SIZE_UP = 0x10
 
+    DTCS_CODES = sorted(chirp_common.DTCS_CODES + [645])
     POWER_LEVELS = [chirp_common.PowerLevel("High", watts=3.00),
                     chirp_common.PowerLevel("Low", watts=0.50)]
 
     _magic = "PHOGR" + "\x01" + "0"
     _fingerprint = "P32073" + "\x02\xFF"
     _upper = 30
+    _ack_1st_block = False
     _skipflags = True
     _reserved = True
     _gmrs = True
@@ -1258,12 +1274,14 @@ class RT76Radio(RT21Radio):
     BLOCK_SIZE = 0x20
     BLOCK_SIZE_UP = 0x10
 
+    DTCS_CODES = sorted(chirp_common.DTCS_CODES + [645])
     POWER_LEVELS = [chirp_common.PowerLevel("High", watts=5.00),
                     chirp_common.PowerLevel("Low", watts=0.50)]
 
     _magic = "PHOGR\x14\xD4"
     _fingerprint = "P32073" + "\x02\xFF"
     _upper = 30
+    _ack_1st_block = False
     _skipflags = False
     _reserved = True
     _gmrs = True
@@ -1326,3 +1344,31 @@ class RT29VHFRadio(RT29UHFRadio):
 
     _magic = "PROHRAM"
     _fingerprint = "P2207" + "\x01\xF8\xFF"  # VHF model
+
+
+@directory.register
+class RB23Radio(RT21Radio):
+    """RETEVIS RB23"""
+    VENDOR = "Retevis"
+    MODEL = "RB23"
+    BLOCK_SIZE = 0x20
+    BLOCK_SIZE_UP = 0x10
+
+    POWER_LEVELS = [chirp_common.PowerLevel("High", watts=5.00),
+                    chirp_common.PowerLevel("Low", watts=0.50)]
+
+    _magic = "PHOGR" + "\x01" + "0"
+    _fingerprint = "P32073" + "\x02\xFF"
+    _upper = 30
+    _ack_1st_block = False
+    _skipflags = True
+    _reserved = True
+    _gmrs = True
+
+    _ranges = [
+               (0x0000, 0x0320),
+              ]
+    _memsize = 0x0320
+
+    def process_mmap(self):
+        self._memobj = bitwise.parse(MEM_FORMAT_RB26, self._mmap)

@@ -420,12 +420,12 @@ def _do_ident(radio, magic, secondack=True):
     serial.write("\x02")
 
     # Until recently, the "ident" returned by the radios supported by this
-    # driver have always been 8 bytes long. The image sturcture is the 8 byte
+    # driver have always been 8 bytes long. The image structure is the 8 byte
     # "ident" followed by the downloaded memory data. So all of the settings
     # structures are offset by 8 bytes. The ident returned from a UV-6 radio
     # can be 8 bytes (original model) or now 12 bytes.
     #
-    # To accomodate this, the "ident" is now read one byte at a time until the
+    # To accommodate this, the "ident" is now read one byte at a time until the
     # last byte ("\xdd") is encountered. The bytes containing the value "\x01"
     # are discarded to shrink the "ident" length down to 8 bytes to keep the
     # image data aligned with the existing settings structures.
@@ -731,7 +731,7 @@ class BaofengUV5R(chirp_common.CloneModeRadio):
     _idents = [UV5R_MODEL_291,
                UV5R_MODEL_ORIG
                ]
-    _vhf_range = (136000000, 174000000)
+    _vhf_range = (130000000, 176000000)
     _220_range = (220000000, 260000000)
     _uhf_range = (400000000, 520000000)
     _aux_block = True
