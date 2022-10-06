@@ -22,6 +22,7 @@ class BaseTest(unittest.TestCase):
         self.mox.VerifyAll()
 
 
+<<<<<<< HEAD
 pygtk_mocks = ('gtk', 'pango', 'gobject')
 pygtk_base_classes = ('gobject.GObject', 'gtk.HBox', 'gtk.Dialog')
 
@@ -48,3 +49,12 @@ def mock_gtk():
 def unmock_gtk():
     for module in pygtk_mocks:
         del sys.modules[module]
+=======
+class BaseGTKTest(BaseTest):
+    def setUp(self):
+        super(BaseGTKTest, self).setUp()
+        try:
+            import gtk
+        except ImportError:
+            self.skipTest('pygtk not available')
+>>>>>>> 35d7271a4e1137caf90bf23868aac4027de42488

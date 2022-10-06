@@ -66,7 +66,11 @@ class DTCSPolarityAction(argparse.Action):
         value = values[0]
         if value not in ["NN", "RN", "NR", "RR"]:
             raise argparse.ArgumentError(
+<<<<<<< HEAD
                 self, "Invaid DTCS polarity: %s" % value)
+=======
+                self, "Invalid DTCS polarity: %s" % value)
+>>>>>>> 35d7271a4e1137caf90bf23868aac4027de42488
         setattr(namespace, self.dest, value)
 
 
@@ -202,7 +206,11 @@ if __name__ == "__main__":
     if options.id:
         from chirp import detect
         md = detect.detect_icom_radio(options.serial)
+<<<<<<< HEAD
         print("Model:\n%s" % md.MODEL)
+=======
+        print "Model:\n%s" % md.MODEL
+>>>>>>> 35d7271a4e1137caf90bf23868aac4027de42488
         sys.exit(0)
 
     if not options.radio:
