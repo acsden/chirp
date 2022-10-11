@@ -283,7 +283,11 @@ class IC7300MemFrame(MemFrame):
     FORMAT = MEM_IC7300_FORMAT
 
     def get_obj(self):
+<<<<<<< HEAD
         self._data = MemoryMapBytes(bytes(self._data))
+=======
+        self._data = MemoryMap(str(self._data))
+>>>>>>> a6f6c0e948ddd2f940058f4a7c094548ee8f0f8c
         return bitwise.parse(self.FORMAT, self._data)
 
 
@@ -877,7 +881,11 @@ class Icom910Radio(IcomCIVRadio):
                        for key in self._SPECIAL_CHANNELS.keys()])
 
     def _is_special(self, number):
+<<<<<<< HEAD
         return isinstance(number, str) or number >= 1000
+=======
+        return number >= 1000 or isinstance(number, str)
+>>>>>>> a6f6c0e948ddd2f940058f4a7c094548ee8f0f8c
 
     def _get_special_info(self, number):
         info = BankSpecialChannel()
@@ -1000,7 +1008,7 @@ class Icom7300Radio(IcomCIVRadio):      # Added March, 2021 by Rick DeWitt
 
 
 def probe_model(ser):
-    """Probe the radio attatched to @ser for its model"""
+    """Probe the radio attached to @ser for its model"""
     f = Frame()
     f.set_command(0x19, 0x00)
 
@@ -1018,7 +1026,11 @@ def probe_model(ser):
             continue
 
         if len(f.get_data()) == 1:
+<<<<<<< HEAD
             md = f.get_data()[0]
+=======
+            md = ord(f.get_data()[0])
+>>>>>>> a6f6c0e948ddd2f940058f4a7c094548ee8f0f8c
             if (md == model):
                 return rclass
 
