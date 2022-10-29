@@ -541,6 +541,13 @@ class KenwoodTKx180Radio(chirp_common.CloneModeRadio):
                 dest_zone.zoneinfo.name = (
                     'Zone %i' % (zone_number + 1)).ljust(12)
 
+                # Copy the settings we care about from the first zone
+                z0info = self._memobj.zone0.zoneinfo
+                dest_zone.zoneinfo.timeout = z0info.timeout
+                dest_zone.zoneinfo.tot_alert = z0info.tot_alert
+                dest_zone.zoneinfo.tot_rekey = z0info.tot_rekey
+                dest_zone.zoneinfo.tot_reset = z0info.tot_reset
+
     def shuffle_zone(self):
         """Sort the memories in the zone according to logical channel number"""
         # FIXME: Move this to the zone
@@ -1010,10 +1017,11 @@ class KenwoodTKx180Radio(chirp_common.CloneModeRadio):
                                 RadioSettingValueString(0, 12, _name))
             zone.append(name)
 
-            def apply_timer(setting, key):
+            def apply_timer(setting, key, zone_number):
                 val = int(setting.value)
                 if val == 0:
                     val = 0xFFFF
+                _zone = getattr(self._memobj, 'zone%i' % zone_number).zoneinfo
                 setattr(_zone, key, val)
 
             def collapse(val):
@@ -1025,25 +1033,25 @@ class KenwoodTKx180Radio(chirp_common.CloneModeRadio):
             timer = RadioSetting(
                 'timeout', 'Time-out Timer',
                 RadioSettingValueInteger(15, 1200, collapse(_zone.timeout)))
-            timer.set_apply_callback(apply_timer, 'timeout')
+            timer.set_apply_callback(apply_timer, 'timeout', i)
             zone.append(timer)
 
             timer = RadioSetting(
                 'tot_alert', 'TOT Pre-Alert',
                 RadioSettingValueInteger(0, 10, collapse(_zone.tot_alert)))
-            timer.set_apply_callback(apply_timer, 'tot_alert')
+            timer.set_apply_callback(apply_timer, 'tot_alert', i)
             zone.append(timer)
 
             timer = RadioSetting(
                 'tot_rekey', 'TOT Re-Key Time',
                 RadioSettingValueInteger(0, 60, collapse(_zone.tot_rekey)))
-            timer.set_apply_callback(apply_timer, 'tot_rekey')
+            timer.set_apply_callback(apply_timer, 'tot_rekey', i)
             zone.append(timer)
 
             timer = RadioSetting(
                 'tot_reset', 'TOT Reset Time',
                 RadioSettingValueInteger(0, 15, collapse(_zone.tot_reset)))
-            timer.set_apply_callback(apply_timer, 'tot_reset')
+            timer.set_apply_callback(apply_timer, 'tot_reset', i)
             zone.append(timer)
 
             zone.append(self._inverted_flag_setting(
@@ -1213,3 +1221,15 @@ if has_future:
         MODEL = 'TK-3180K2'
         VALID_BANDS = [(400000000, 520000000)]
         _model = b'P3180\x07'
+
+    @directory.register
+    class KenwoodTK8180E(KenwoodTKx180Radio):
+        MODEL = 'TK-8180E'
+        VALID_BANDS = [(400000000, 520000000)]
+        _model = b'M8189\''
+
+    @directory.register
+    class KenwoodTK7180ERadio(KenwoodTKx180Radio):
+        MODEL = 'TK-7180E'
+        VALID_BANDS = [(136000000, 174000000)]
+        _model = b'M7189$'
